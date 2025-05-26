@@ -47,3 +47,64 @@ def define_gan(generator, discriminator):
     # 编译生成对抗网络模型
     model.compile(loss='binary_crossentropy', optimizer='adam')
     return model
+
+
+# 生成带有类标签的 n 个真实样本
+def generate_real_samples(n):
+    X1 = rand(n)*6 - 3
+    X2 = np.sin(X1) # 生成正弦曲线
+    X1 = X1.reshape(n, 1)
+    X2 = X2.reshape(n, 1)
+    X = hstack((X1, X2))
+    y = ones((n, 1))
+    return X, y
+
+# 在隐空间中生成一些点作为生成器的输入
+def generate_latent_points(latent_dim, n):
+    x_input = randn(latent_dim * n)
+    x_input = x_input.reshape(n, latent_dim)
+    return x_input
+# 使用生成器生成带有类标签的 n 个伪造样本
+def generate_fake_samples(generator, latent_dim, n):
+    x_input = generate_latent_points(latent_dim, n)
+    X = generator.predict(x_input)
+    y = zeros((n, 1))
+    return X, y
+
+# 评估判别器并绘制真实样本和伪造样本
+def summarize_performance(epoch, generator, discriminator, latent_dim, n=100):
+    x_real, y_real = generate_real_samples(n)
+    _, acc_real = discriminator.evaluate(x_real, y_real, verbose=0)
+    x_fake, y_fake = generate_fake_samples(generator, latent_dim, n)
+    _, acc_fake = discriminator.evaluate(x_fake, y_fake, verbose=0)
+    print(epoch, acc_real, acc_fake)
+    pyplot.scatter(x_real[:, 0], x_real[:, 1], color='red')
+    pyplot.scatter(x_fake[:, 0], x_fake[:, 1], color='blue')
+    filename = 'D:/pythontest/generated_plot_e%03d.png' % (epoch + 1)
+    pyplot.savefig(filename)
+    pyplot.close()
+
+# 训练生成对抗网络
+def train(g_model, d_model, gan_model, latent_dim, n_epochs=8000, n_batch=128,n_eval=2000):
+    half_batch = int(n_batch / 2)
+    for i in range(n_epochs):
+        x_real, y_real = generate_real_samples(half_batch)
+        x_fake, y_fake = generate_fake_samples(g_model, latent_dim, half_batch)
+        # 更 新 判 别 器
+        # discriminator.trainable = True # 仅较新 Keras 版本必须添加
+        d_model.train_on_batch(x_real, y_real)
+        d_model.train_on_batch(x_fake, y_fake)
+        # discriminator.trainable = False # 仅较新 Keras 版本必须添加
+        x_gan = generate_latent_points(latent_dim, n_batch)
+        y_gan = ones((n_batch, 1))
+        gan_model.train_on_batch(x_gan, y_gan)
+        if (i + 1) % n_eval == 0:
+            summarize_performance(i, g_model, d_model, latent_dim)
+
+# 隐空间的维度
+latent_dim = 6
+discriminator = define_discriminator()
+generator = define_generator(latent_dim)
+gan_model = define_gan(generator, discriminator)
+train(generator, discriminator, gan_model, latent_dim)
+
