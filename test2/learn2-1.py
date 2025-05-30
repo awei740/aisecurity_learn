@@ -18,9 +18,13 @@ from matplotlib import pyplot
 
 # 定义一个独立的生成器模型
 def define_generator(latent_dim, n_outputs=2):
+#latent_dim：潜在空间维度，表示输入噪声向量的长度，在GAN中，这是生成器的输入大小。n_outputs：生成器输出维度，指定生成数据的特征数量
     model = Sequential()
+    #使用Keras的Sequential API创建线性堆叠模型，适合简单的层叠结构
     model.add(Dense(30, activation='relu', kernel_initializer='he_uniform',input_dim=latent_dim))
+    #使用add和Dense函数添加一个全连接层，设置30个神经元，每个神经元接受输入的所有特征，设置relu激活函数，kernel_initializer='he_uniform'是一种权重初始化方式，适用于relu函数，input_dim=latent_dim是输入维度
     model.add(Dense(n_outputs, activation='linear'))
+    #添加一个输出层，维度=2，使用linea线性激活函数，
     return model
 
 
@@ -29,8 +33,9 @@ def define_discriminator(n_inputs=2):
     model = Sequential()
     model.add(Dense(50, activation='relu', kernel_initializer='he_uniform',input_dim=n_inputs))
     model.add(Dense(1, activation='sigmoid'))
-    # 编译模型
+    #输出一个神经元，使用sigmoid激活函数，适合二分类任务
     model.compile(loss='binary_crossentropy', optimizer='adam',metrics=['accuracy'])
+    #模型编译，loss='binary_crossentropy'评估预测与真实之间的差距，Adam自适应调整学习率
     return model
 
 
@@ -51,12 +56,18 @@ def define_gan(generator, discriminator):
 
 # 生成带有类标签的 n 个真实样本
 def generate_real_samples(n):
+#n表示生成的真实样本数量
     X1 = rand(n)*6 - 3
-    X2 = np.sin(X1) # 生成正弦曲线
+    #rand(n)生成0-1之间的值，X1的值均匀分布在[-3,3]之间
+    X2 = np.sin(X1)
+    # 生成正弦曲线
     X1 = X1.reshape(n, 1)
+    #调整形状为(n,1)
     X2 = X2.reshape(n, 1)
     X = hstack((X1, X2))
+    #X1，X2水平堆叠，形成一个(n,2)的数组X，每一行代表一个样本的特征
     y = ones((n, 1))
+    #创建一个(n,1)的数组y，所有值赋值为1，表示样本都是真实的
     return X, y
 
 # 在隐空间中生成一些点作为生成器的输入
