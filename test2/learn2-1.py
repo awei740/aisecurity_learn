@@ -70,7 +70,7 @@ def generate_real_samples(n):
     #创建一个(n,1)的数组y，所有值赋值为1，表示样本都是真实的
     return X, y
 
-# 在隐空间中生成一些点作为生成器的输入
+# 在隐空间中生成一些点作为生成器的输入，隐空间理解为低维空间，将数据压缩为了节省运行空间
 def generate_latent_points(latent_dim, n):
     x_input = randn(latent_dim * n)
     x_input = x_input.reshape(n, latent_dim)
@@ -79,13 +79,17 @@ def generate_latent_points(latent_dim, n):
 def generate_fake_samples(generator, latent_dim, n):
     x_input = generate_latent_points(latent_dim, n)
     X = generator.predict(x_input)
+    #生成n个伪造样本。并且存储在X中
     y = zeros((n, 1))
+    #将伪造样本全部初始化为0
     return X, y
 
 # 评估判别器并绘制真实样本和伪造样本
 def summarize_performance(epoch, generator, discriminator, latent_dim, n=100):
     x_real, y_real = generate_real_samples(n)
+    #生成n个真实的样本和标签
     _, acc_real = discriminator.evaluate(x_real, y_real, verbose=0)
+    #evaluate对真实样本评估，得到准确率acc_real，第一个值是损失值，不需要用_替代，verbose=0表示不输出评估过程的信息
     x_fake, y_fake = generate_fake_samples(generator, latent_dim, n)
     _, acc_fake = discriminator.evaluate(x_fake, y_fake, verbose=0)
     print(epoch, acc_real, acc_fake)
@@ -97,6 +101,7 @@ def summarize_performance(epoch, generator, discriminator, latent_dim, n=100):
 
 # 训练生成对抗网络
 def train(g_model, d_model, gan_model, latent_dim, n_epochs=8000, n_batch=128,n_eval=2000):
+# g_model生成器模型, d_model判别器模型，gan_model生成对抗网络模型
     half_batch = int(n_batch / 2)
     for i in range(n_epochs):
         x_real, y_real = generate_real_samples(half_batch)
@@ -106,9 +111,18 @@ def train(g_model, d_model, gan_model, latent_dim, n_epochs=8000, n_batch=128,n_
         d_model.train_on_batch(x_real, y_real)
         d_model.train_on_batch(x_fake, y_fake)
         # discriminator.trainable = False # 仅较新 Keras 版本必须添加
+
+
         x_gan = generate_latent_points(latent_dim, n_batch)
+        #生成n_batch数量的随机潜在点，这些点将作为输入传递给生成器模型，在隐空间中随机生成一批点（潜在向量），这是生成器的"原料"，生成器将把这些随机点转化为伪造样本
         y_gan = ones((n_batch, 1))
+        #创建全是"1"（真实）的标签，虽然生成的是伪造样本，但标签设为"1"（真实），这是一种训练技巧，目的让生成器学习如何"欺骗"判别器
         gan_model.train_on_batch(x_gan, y_gan)
+        #冻结判别器权重，只更新生成器
+        #前向传播：隐空间点 x_gan 输入生成器 G → 生成伪造样本，伪造样本输入判别器 D → 获得预测概率值（0到1之间）
+        #损失计算：比较判别器预测值（概率）和期望标签 y_gan=1，使用二元交叉熵损失函数，最小化损失 → 使判别器更可能输出接近1的值
+        #反向传播更新：：只更新生成器的权重（判别器权重被冻结），让生成器生产的伪造样本更易被误判为真实
+
         if (i + 1) % n_eval == 0:
             summarize_performance(i, g_model, d_model, latent_dim)
 
