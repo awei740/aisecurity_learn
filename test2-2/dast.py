@@ -1,3 +1,4 @@
+#!!!!!!!!!!!!!!!!!!!!!!!语句在上 注释解析在下！！！！！！！！！！！！！！！！！！！！！！
 from __future__ import print_function
 import argparse
 import os
@@ -29,46 +30,72 @@ import torch.utils.data.sampler as sp
 from net import Net_s, Net_m, Net_l
 from vgg import VGG
 from resnet import ResNet50, ResNet18, ResNet34
+
+
+
+#！！！！！！！！！！！！！！！！！！！！！！！！！初始化和配置！！！！！！！！！！！！！！！！！！！！！！！！！！
 cudnn.benchmark = True
+# cuDNN是 NVIDIA 提供的深度学习加速库，提供高性能实现：卷积、池化、归一化、激活函数等，PyTorch、TensorFlow 等框架底层都使用 cuDNN
 workbook = xlwt.Workbook(encoding = 'utf-8')
 worksheet = workbook.add_sheet('imitation_network_sig')
+#创建Excel文件用于记录训练结果，xlwt库用于生成Excel文件，创建名为"imitation_network_sig"的工作表
 nz = 128
-
-class Logger(object):
-    def __init__(self, filename='default.log', stream=sys.stdout):
+#定义生成器输入的噪声向量维度
+class Logger(object):# 日志记录类
+    def __init__(self, filename='default.log', stream=sys.stdout):# 初始化日志文件
+    #filename：日志文件名，默认 'default.log'，stream：输出流对象，默认 sys.stdout（标准输出/控制台）
         self.terminal = stream
-        self.log = open(filename, 'a')       
-    def write(self, message):
+        self.log = open(filename, 'a')
+        #以追加模式('a')打开日志文件，'a' 模式：追加写入，不覆盖已有内容
+    def write(self, message): #同时写入终端和文件
         self.terminal.write(message)
         self.log.write(message)
-    def flush(self):
+    def flush(self): # 空方法满足接口要求
         pass
 
 
 sys.stdout = Logger('imitation_network_model.log', sys.stdout)
+# 重定向所有print输出，控制台输出的内容会同时保存到'imitation_network_model.log'文件中
 
 parser = argparse.ArgumentParser()
+# 创建参数解析器对象
 parser.add_argument('--workers', type=int, help='number of data loading workers', default=2)
+# 控制数据加载的并行程度
 parser.add_argument('--batchSize', type=int, default=500, help='input batch size')
+#定义每次训练迭代使用的样本数量
 parser.add_argument('--dataset', type=str, default='azure')
+#指定使用的数据集，当运行程序时不指定--dataset 参数，程序会自动使用 'azure' 作为数据集名称
 parser.add_argument('--niter', type=int, default=2000, help='number of epochs to train for')
+#设置训练的总轮数（epochs）
 parser.add_argument('--lr', type=float, default=0.0001, help='learning rate, default=0.0002')
+#控制模型参数更新的步长
 parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
+#设置Adam优化器的一阶矩估计指数衰减率
 parser.add_argument('--cuda', default=True, action='store_true', help='enables cuda')
+#控制是否使用GPU加速
 parser.add_argument('--manualSeed', type=int, help='manual seed')
+#设置随机数生成器的种子
 parser.add_argument('--alpha', type=float, default=0.2, help='alpha')
+#自定义超参数（可能是损失函数权重）
 parser.add_argument('--beta', type=float, default=0.1, help='alpha')
+#另一个自定义超参数
 parser.add_argument('--G_type', type=int, default=1, help='iteration limitation')
+#：选择生成器网络架构（GAN上下文）
 parser.add_argument('--save_folder', type=str, default='saved_model', help='alpha')
+#设置模型保存目录
 
 opt = parser.parse_args()
+# 解析命令行参数
 print(opt)
+#打印所有参数配置
 
 # 如果存在可用的CUDA设备，并且没有使用-cuda选项，则打印警告信息
 if torch.cuda.is_available() and not opt.cuda:
     print("WARNING: You have a CUDA device, so you should probably run with --cuda")
+#！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
 
-# 如果使用的是azure数据集
+# ！！！！！！！！！！！！！！！！！！！！！！！！数据加载部分！！！！！！！！！！！！！！！！！！！！！！
+# 如果使用的是azure数据集，这里是黑盒攻击！！！！！
 if opt.dataset == 'azure':
     # 加载MNIST数据集，root参数指定数据集路径，train参数指定是否是训练集，download参数指定是否下载数据集，transform参数指定数据预处理
     testset = torchvision.datasets.MNIST(root='dataset/', train=False,
@@ -80,22 +107,41 @@ if opt.dataset == 'azure':
                                                 # transforms.RandomCrop(32, 4),
                                                 # normalize,
                                         ]))
-    # 定义生成器网络，并将模型放到GPU上
+#！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
+#！！！！！！！！！！！！！！！初始化网络模型！！！！！！！！！！！！！！！！！
+    # 定义生成器网络，并将模型放到GPU上，这里的Net_l是替代模型D
     netD = Net_l().cuda()
     # 将模型放到多GPU上
     netD = nn.DataParallel(netD)
 
     clf = joblib.load('pretrained/sklearn_mnist_model.pkl')
+    #从文件加载预训练的scikit - learn模型
+    # 也就是图中被攻击模型T，这里的T我们不知道模型结构和参数，只能通过将原始数据输入到目标模型后获取到目标模型的输出结果，并根据结果来进行攻击，也就是黑盒攻击
+#！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
 
+#！！！！！！！！！！！！！！！！！对抗性攻击设置！！！！！！！！！！！！！！！
 # 加载预训练的模型
     adversary_ghost = LinfBasicIterativeAttack(
-        netD, loss_fn=nn.CrossEntropyLoss(reduction="sum"), eps=0.25,
-        nb_iter=100, eps_iter=0.01, clip_min=0.0, clip_max=1.0,
+        netD,
+        # 替代模型D，作为攻击对象，生成器G将学习欺骗该模型D，使用此模型的梯度信息生成对抗样本
+        loss_fn=nn.CrossEntropyLoss(reduction="sum"),
+        # reduction="sum"：所有样本的损失值求和，量化模型预测与真实标签的差异
+        eps=0.25,
+        # 最大扰动范围：像素值最大变化±0.25，原像素0.5 → 可变化范围[0.25,0.75]
+        nb_iter=200,
+        # 攻击迭代次数，通过多次调整使攻击更可靠
+        eps_iter=0.02,
+        # 单步扰动大小，每次迭代改变的最大幅度
+        clip_min=0.0,
+        clip_max=1.0,
+        # 像素值裁剪范围，确保对抗样本是有效图像，避免生成非法像素值
         targeted=False)
+    # 攻击类型：非定向攻击，targeted=True：让模型将"3"识别为特定错误如"8"，targeted=False：只要识别错误即可（任意错误都行）
     # 定义攻击方法，LinfBasicIterativeAttack为一种攻击方法，用于生成对抗样本
-    # netD为模型，loss_fn为损失函数，eps为最大扰动，nb_iter为迭代次数，eps_iter为每次迭代扰动大小，clip_min为最小值，clip_max为最大值，targeted为是否 targeted攻击
     nc=1
-
+    #表示通道数，nc=3是RGB彩色通道，nc=1表示灰度图像，即黑白图
+#！！！！！！！！！！！！！！！！！！！！！！
+# 这里是白盒攻击，框架类似于上面的黑盒
 elif opt.dataset == 'mnist':
     # 加载MNIST数据集，并将其转换为tensor
     testset = torchvision.datasets.MNIST(root='dataset/', train=False,
@@ -108,29 +154,60 @@ elif opt.dataset == 'mnist':
                                         ]))
     # 加载预训练的Net_l模型
     netD = Net_l().cuda()
+    # 将模型放到多GPU上
     netD = nn.DataParallel(netD)
 
-    # 加载预训练的Net_m模型
+    # 加载预训练的Net_m模型，也就是被攻击模型T，我们知道模型的完整结构和参数，也就是白盒攻击
     original_net = Net_m().cuda()
+    #创建模型实例并加载到GPU
+
     state_dict = torch.load(
         'pretrained/net_m.pth')
+    #加载预训练权重文件，
+    # torch.load()：加载PyTorch模型权重文件
+    #'pretrained/net_m.pth'：预训练权重文件路径
+    #state_dict：获取模型的权重字典，包含所有参数：权重(weights)、偏置(biases)等
+
     original_net.load_state_dict(state_dict)
+    # 将权重加载到模型
     original_net = nn.DataParallel(original_net)
+    #nn.DataParallel：将模型包装为多GPU并行版本
     original_net.eval()
+    #.eval()：切换模型到评估模式：确保评估结果稳定一致，不随批次变化
+        #禁用Dropout层：不使用随机神经元丢弃
+        #固定BatchNorm：使用训练阶段的统计量，而非当前批次
+        #其他层：如Detach等特殊层也会调整行为
 
     # 定义LinfBasicIterativeAttack攻击器
     adversary_ghost = LinfBasicIterativeAttack(
-        netD, loss_fn=nn.CrossEntropyLoss(reduction="sum"), eps=0.25,
-        nb_iter=200, eps_iter=0.02, clip_min=0.0, clip_max=1.0,
+        netD,
+        #替代模型D，作为攻击对象，生成器G将学习欺骗该模型D，使用此模型的梯度信息生成对抗样本
+        loss_fn=nn.CrossEntropyLoss(reduction="sum"),
+        #reduction="sum"：所有样本的损失值求和，量化模型预测与真实标签的差异
+        eps=0.25,
+        #最大扰动范围：像素值最大变化±0.25，原像素0.5 → 可变化范围[0.25,0.75]
+        nb_iter=200,
+        # 攻击迭代次数，通过多次调整使攻击更可靠
+        eps_iter=0.02,
+        #单步扰动大小，每次迭代改变的最大幅度
+        clip_min=0.0,
+        clip_max=1.0,
+        #像素值裁剪范围，确保对抗样本是有效图像，避免生成非法像素值
         targeted=False)
+        #攻击类型：非定向攻击，targeted=True：让模型将"3"识别为特定错误如"8"，targeted=False：只要识别错误即可（任意错误都行）
+    # 定义攻击方法，LinfBasicIterativeAttack为一种攻击方法，用于生成对抗样本
     nc=1
-
+    #表示通道数，nc=3是RGB彩色通道，nc=1表示灰度图像，即黑白图
 data_list = [i for i in range(6000, 8000)] # fast validation
+#选择测试集的子集进行快速验证，使用20%的样本(2000个)进行快速验证
+
 testloader = torch.utils.data.DataLoader(testset, batch_size=500,
                                          sampler = sp.SubsetRandomSampler(data_list), num_workers=2)
+#创建测试数据加载器，testset完整测试集，batch_size=500每批加载500个样本，sampler = sp.SubsetRandomSampler(data_list)自定义采样器，num_workers=2使用2个子进程加载数据
 # nc=1
 
 device = torch.device("cuda:0" if opt.cuda else "cpu")
+#根据配置选择计算设备
 
 # 定义一个函数weights_init，用于初始化网络权重
 def weights_init(m):
@@ -340,8 +417,12 @@ def chunks(arr, m):
     return [arr[i:i + n] for i in range(0, arr.size(0), n)]
 
 netG = Generator(10).cuda()
+#创建生成器（也就是图中模型G）实例并转移到GPU，Generator(10)表示有10个类别分支（对应MNIST的10个数字），在图中对应多分支反卷积架构（每个类别一个分支）.cuda()：将模型加载到GPU显存
 netG.apply(weights_init)
+# 权重初始化
 netG = nn.DataParallel(netG)
+#多GPU并行处理
+
 
 criterion = nn.CrossEntropyLoss()
 criterion_max = Loss_max()

@@ -79,32 +79,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class Net_s(nn.Module):
-    def __init__(self):
-        super(Net_s, self).__init__()
-        # 定义卷积层1，输入通道为1，输出通道为20，卷积核大小为5，步长为1
-        self.conv1 = nn.Conv2d(1, 20, 5, 1)
-        # 定义卷积层2，输入通道为20，输出通道为50，卷积核大小为5，步长为1
-        self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        # 定义全连接层1，输入维度为4*4*50，输出维度为500
-        self.fc1 = nn.Linear(4*4*50, 500)
-        # 定义全连接层2，输入维度为500，输出维度为10
-        self.fc2 = nn.Linear(500, 10)
-
-    def forward(self, x):
-        # 通过卷积层1，使用ReLU激活函数
-        x = F.relu(self.conv1(x))
-        # 通过最大池化层，池化窗口大小为2，步长为2
-        x = F.max_pool2d(x, 2, 2)
-        # 通过卷积层2，使用ReLU激活函数
-        x = F.relu(self.conv2(x))
-        # 通过最大池化层，池化窗口大小为2，步长为2
-        x = F.max_pool2d(x, 2, 2)
-        # print(x.shape)
-        x = x.view(-1, 4*4*50)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
 
 class Net_m(nn.Module):
     def __init__(self):
@@ -141,11 +115,12 @@ class Net_m(nn.Module):
         # 返回对数概率分布
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
+        #输出类别，每个类别对应着一个值表示概率的大小
 
     def get_number(self):
         return self.number
 
-
+#生成器网络，也就是图中的D
 class Net_l(nn.Module):
     def __init__(self):
         super(Net_l, self).__init__()
