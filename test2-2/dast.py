@@ -224,8 +224,10 @@ def weights_init(m):
 def cal_azure(model, data):
     # 将输入数据转换为784维的向量，并将其从CPU转换为numpy数组
     data = data.view(data.size(0), 784).cpu().numpy()
+
     # 使用模型进行预测
     output = model.predict(data)
+
     # 将预测结果从numpy数组转换为torch张量，并将其从CPU转换为GPU
     output = torch.from_numpy(output).cuda().long()
     return output
@@ -256,6 +258,7 @@ class Loss_max(nn.Module):
         final_loss = torch.exp(loss * -1)
         return final_loss
 
+#对应于图中的反卷积层，负责初步特征生成和上采样（从低维噪声到初步特征）
 class pre_conv(nn.Module):
     def __init__(self, num_class):
         super(pre_conv, self).__init__()
@@ -263,8 +266,16 @@ class pre_conv(nn.Module):
         if opt.G_type == 1:
             self.pre_conv = nn.Sequential(
                 nn.Conv2d(nz, self.nf * 2, 3, 1, 1, bias=False),
+                #输入通道：nz（噪声向量的维度）
+                #输出通道：self.nf * 2
+                #卷积核：3×3
+                #步长：1
+                #填充：1
+                #偏置：无
                 nn.BatchNorm2d(self.nf * 2),
+                #对128通道的特征图进行归一化
                 nn.LeakyReLU(0.2, inplace=True),
+                #特征激活模块
 
                 nn.ConvTranspose2d(self.nf * 2, self.nf * 2, 4, 2, 1, bias=False),
                 nn.BatchNorm2d(self.nf * 2),
@@ -289,6 +300,7 @@ class pre_conv(nn.Module):
         elif opt.G_type == 2:
             self.pre_conv = nn.Sequential(
                 nn.Conv2d(self.nf * 8, self.nf * 8, 3, 1, round((self.shape[0]-1) / 2), bias=False),
+                #round((self.shape[0]-1)/2),  # 动态计算填充值
                 nn.BatchNorm2d(self.nf * 8),
                 nn.ReLU(True),  # added
 
@@ -333,6 +345,7 @@ for i in range (10):
     # 将pre_conv函数的结果添加到pre_conv_block列表中，并使用DataParallel函数，并将其放在GPU上
     pre_conv_block.append(nn.DataParallel(pre_conv(10).cuda()))
 
+#对应于图中的卷积层，图中卷积层负责精炼特征和生成最终图像
 class Generator(nn.Module):
     def __init__(self, num_class):
         super(Generator, self).__init__()
@@ -423,38 +436,61 @@ netG.apply(weights_init)
 netG = nn.DataParallel(netG)
 #多GPU并行处理
 
-
+#！！！！！！！！！！！！！！！！！！！！！训练和评估循环！！！！！！！！！！！！！！！！！！
 criterion = nn.CrossEntropyLoss()
+#使用PyTorch内置的交叉熵损失函数
 criterion_max = Loss_max()
+#自定义的损失函数
 
 # setup optimizer
 optimizerD = optim.Adam(netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+#判别器优化器，lr=opt.lr：从配置参数获取学习率。betas=(opt.beta1, 0.999)：Adam的动量参数
 # optimizerD =  optim.SGD(netD.parameters(), lr=opt.lr, momentum=0.9, weight_decay=5e-4)
 optimizerG = optim.Adam(netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+#生成器优化器
 # optimizerG =  optim.SGD(netG.parameters(), lr=opt.lr, momentum=0.9, weight_decay=5e-4)
 optimizer_block = []
 for i in range(10):
     optimizer_block.append(optim.Adam(pre_conv_block[i].parameters(), lr=opt.lr, betas=(opt.beta1, 0.999)))
+#卷积块优化器初始化，为10个预定义的卷积块（pre_conv_block）分别创建独立的Adam优化器，每个优化器管理对应卷积块的参数更新
+#lr=opt.lr,        # 学习率
+#betas=(opt.beta1, 0.999)  # Adam的超参数
 
 with torch.no_grad():
+# 禁用自动梯度计算（评估模式-验证），不需要学习机制，只做纯推理
     correct_netD = 0.0
+    # 初始化正确预测计数器（浮点数）
     total = 0.0
+    #初始化总样本计数器（浮点数）
     netD.eval()
+    #设置替代模型D为评估模式--验证模式，
+    # 在训练模式时：Dropout层随机丢弃部分神经元，BatchNorm层使用当前批次统计量
+    #评估模式下：Dropout层保留所有神经元，BatchNorm层使用使用训练集的总体统计量
     for data in testloader:
         inputs, labels = data
+        #inputs: 输入图像张量
+        #labels: 对应标签张量
         inputs = inputs.cuda()
+        #输入数据转移到GPU
         labels = labels.cuda()
         # outputs = netD(inputs)
         if opt.dataset == 'azure':
             predicted = cal_azure(clf, inputs)
+            #使用黑盒的被攻击模型进行预测
         else:
             outputs = original_net(inputs)
+            #使用白盒的被攻击模型示例 outputs 结构：
+            #outputs结构示例：tensor([[ 1.223, -0.456,  0.789, ...,  2.345],
             _, predicted = torch.max(outputs.data, 1)
         # _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
+        #累加样本总数
         correct_netD += (predicted == labels).sum()
+        #统计正确预测数量
     print('Accuracy of the network on netD: %.2f %%' %
             (100. * correct_netD.float() / total))
+    #计算并打印最终准确率，这里输出的是被攻击模型T的准确率
+#！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
 
 
 # 初始化正确率
@@ -478,6 +514,7 @@ for data in testloader:
         # 如果是azure数据集，则计算azure结果
         if opt.dataset == 'azure':
             predicted = cal_azure(clf, adv_inputs_ghost)
+            #调用自定义函数进行Azure特定预测
         else:
             # 否则计算原始网络的结果
             outputs = original_net(adv_inputs_ghost)
@@ -643,7 +680,7 @@ for epoch in range(opt.niter):
     # 清理内存
     gc.collect()
 
-
+#！！！！！！！！！！！！！！！结果保存和输出！！！！！！！！！！！！！！！！！！！！
 # 使用torch.no_grad()禁用梯度计算，提高性能
     with torch.no_grad():
         # 初始化正确率
@@ -679,4 +716,4 @@ for epoch in range(opt.niter):
             print('This is the best model')
     worksheet.write(epoch, 1, (correct_netD.float() / total).item())
 workbook.save('imitation_network_saved_azure.xls')
-
+#！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
