@@ -232,6 +232,7 @@ def cal_azure(model, data):
     output = torch.from_numpy(output).cuda().long()
     return output
 
+
 def cal_azure_proba(model, data):
     # 将输入数据转换为numpy数组
     data = data.view(data.size(0), 784).cpu().numpy()
@@ -527,31 +528,44 @@ for data in testloader:
 # 打印攻击成功率
 print('Attack success rate: %.2f %%' %
         (100 - 100. * correct_ghost.float() / total))
+#这个攻击成功率就是样本加入轻微扰动再让被攻击模型T预测
+#这类似于在医学中既要测量健康状态下的生理指标（如静态血压），也要测量压力测试下的反应（如跑步后的心电图）。这两个指标共同构成了对模型性能和安全的全面评估
+
 # 释放内存
 del inputs, labels, adv_inputs_ghost
 torch.cuda.empty_cache()
 gc.collect()
 
 batch_num = 1000
+#每个epoch训练1000个批次
 best_accuracy = 0.0
+#记录最佳替代模型性能
 best_att = 0.0
+#记录最佳攻击成功率
 for epoch in range(opt.niter):
     netD.train()
+    #每个epoch开始时设置替代模型为训练模式
 
     for ii in range(batch_num):
         netD.zero_grad()
 
         ############################
-        # (1) Update D network:
+        # (1) 判别器D更新:
         ###########################
         noise = torch.randn(opt.batchSize, nz, 1, 1, device=device).cuda()
+        # 生成随机噪声
         noise_chunk = chunks(noise, 10)
+        # 将噪声分成10份(对应10个类别)
 # 遍历noise_chunk
         for i in range(len(noise_chunk)):
+        #为每个类别生成对抗样本
     # 调用pre_conv_block[i]函数处理noise_chunk[i]
             tmp_data = pre_conv_block[i](noise_chunk[i])
+            #类别特征生成
     # 调用netG函数生成gene_data
             gene_data = netG(tmp_data)
+            #生成对抗样本
+
             # gene_data = netG(noise_chunk[i], i)
     # 创建一个label，大小为noise_chunk[i]的批次大小，值都为i
             label = torch.full((noise_chunk[i].size(0),), i).cuda()
@@ -563,11 +577,31 @@ for epoch in range(opt.niter):
             else:
                 data = torch.cat((data, gene_data), 0)
                 set_label = torch.cat((set_label, label), 0)
+            #示例：
+              #  假设我们有3个类别，每个类别生成2个样本。
+              #  第0次循环（i=0）：
+              #  gene_data0 = 类别0的2个样本，set_label0 = [0,0]
+              #  此时：data = gene_data0, set_label = [0,0]
+              #  第1次循环（i=1）：
+              #  gene_data1 = 类别1的2个样本，set_label1 = [1,1]
+              #  拼接后：data = [gene_data0, gene_data1] -> 4个样本（前2个是类别0，后2个是类别1）
+              #  set_label = [0,0,1,1]
+              #  第2次循环（i=2）：
+              #  gene_data2 = 类别2的2个样本，set_label2 = [2,2]
+              #  拼接后：data = [gene_data0, gene_data1, gene_data2] -> 6个样本
+              #  set_label = [0,0,1,1,2,2]
         index = torch.randperm(set_label.size()[0])
+        #set_label.size()[0]：获取当前数据集的总样本数量
+        #torch.randperm(n)：生成0到n-1整数的随机排列
+        #若n=4，可能生成tensor([2, 0, 3, 1])
+        #创建用于打乱数据的随机顺序索引
         data = data[index]
+        #使用索引数组重新排序数据张量
         set_label = set_label[index]
+        #使用相同的索引序列重排标签张量,样本与标签的对应关系不变
 
-        
+        #到这里生成器G已经生成好一批数据
+
         # 计算测试集的预测结果
         with torch.no_grad():
            
@@ -584,47 +618,75 @@ for epoch in range(opt.niter):
         # print(label)
 
         output = netD(data.detach())
+        #将生成器创建的数据送入替代模型获取原始输出
+        #data.detach(): 分离梯度，防止G的梯度回传干扰D训练
+        #netD(): 替代模型(即目标模型T的模仿者)的前向计算
         prob = F.softmax(output, dim=1)
+        #将原始输出转换为概率分布
         # print(torch.sum(outputs) / 500.)
         errD_prob = mse_loss(prob, outputs, reduction='mean')
+        #计算替代模型与被攻击模型T的概率分布差异
         errD_fake = criterion(output, label) + errD_prob * opt.beta
+        #组合损失函数
         D_G_z1 = errD_fake.mean().item()
+        #记录当前损失值(用于监控)
         errD_fake.backward()
+        #反向传播计算梯度
 
         errD = errD_fake
+        #更新错误记录变量(通常用于外部监控)
         optimizerD.step()
+        #参数更新
 
         del output, errD_fake
+        #清除临时变量，显式释放显存
+
+
+#到这里已经训练了替代模型D
 
 
         netG.zero_grad()
         for i in range(10):
             pre_conv_block[i].zero_grad()
+        #清除历史梯度，防止梯度累积
+
         # 计算netD的输出
         output = netD(data)
+        #让梯度通过判别器回传到生成器
+
         # 计算模仿损失
         loss_imitate = criterion_max(pred=output, truth=label, proba=outputs)
+        #pred=output替代模型对对抗样本的原始输出
+        #truth=label被攻击模型认为对抗样本应该归属的类别
+        #proba=outputs被攻击模型的输出概率分布
         # 计算多样性损失
         loss_diversity = criterion(output, set_label.squeeze().long())
         # 计算总的生成器损失
         errG = opt.alpha * loss_diversity + loss_imitate
-        # 如果多样性损失小于0.1，则更新alpha
+        # 如果多样性损失小于0.1，则更新alpha，当alpha≈1.0：强调多样性（初期），当alpha≈0：强调欺骗性（后期）
         if loss_diversity.item() <= 0.1:
             opt.alpha = loss_diversity.item()
         # 反向传播计算梯度
         errG.backward()
         # 计算生成器输出
         D_G_z2 = errG.mean().item()
+        #记录当前损失值
+
         # 更新生成器参数
         optimizerG.step()
         for i in range(10):
             optimizer_block[i].step()
+        #类别模块参数更新
 
         # 每40次迭代打印一次损失
         if (ii % 40) == 0:
             print('[%d/%d][%d/%d] D: %.4f D_prob: %.4f G: %.4f D(G(z)): %.4f / %.4f loss_imitate: %.4f loss_diversity: %.4f'
                 % (epoch, opt.niter, ii, batch_num,
                     errD.item(), errD_prob.item(), errG.item(), D_G_z1, D_G_z2, loss_imitate.item(), loss_diversity.item()))
+
+
+#到这里已经训练了生成器G
+
 
 
     # 初始化最优攻击成功率
@@ -667,6 +729,7 @@ for epoch in range(opt.niter):
     if best_att < (total - correct_ghost):
         torch.save(netD.state_dict(),
                     opt.save_folder + '/netD_epoch_%d.pth' % (epoch))
+        #虽然保存的是G和D的模型，但评估的实际上是"生成器G生产的对抗样本对目标模型T的攻击效果"
         torch.save(netG.state_dict(),
                     opt.save_folder + '/netG_epoch_%d.pth' % (epoch))
         best_att = (total - correct_ghost)
@@ -679,6 +742,8 @@ for epoch in range(opt.niter):
     torch.cuda.empty_cache()
     # 清理内存
     gc.collect()
+
+#到这里就是评估生成器G创建的对抗样本的攻击效果，在真实目标模型T上的欺骗成功率
 
 #！！！！！！！！！！！！！！！结果保存和输出！！！！！！！！！！！！！！！！！！！！
 # 使用torch.no_grad()禁用梯度计算，提高性能
@@ -716,4 +781,6 @@ for epoch in range(opt.niter):
             print('This is the best model')
     worksheet.write(epoch, 1, (correct_netD.float() / total).item())
 workbook.save('imitation_network_saved_azure.xls')
+
+# 到这里是评估替代模型D对干净样本预测的能力
 #！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！

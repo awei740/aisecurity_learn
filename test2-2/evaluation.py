@@ -83,6 +83,10 @@ device = torch.device("cuda:0" if opt.cuda else "cpu")
 # L2 = foolbox.distances.MeanAbsoluteDistance()
 
 def test_adver(net, tar_net, attack, target):
+#net：攻击生成网络（替代模型）
+#tar_net：目标网络（被攻击模型）
+#attack：攻击方法名称
+#target：攻击目标类型：定向攻击：使目标模型将样本错误分类为特定类别。非定向攻击：只需使目标模型错误分类即可，不指定错误类别
     net.eval()
     tar_net.eval()
     # BIM
