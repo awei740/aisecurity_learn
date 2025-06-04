@@ -187,6 +187,10 @@ def test_adver(net, tar_net, attack, target):
         outputs = tar_net(inputs)
         # 获取预测结果
         _, predicted = torch.max(outputs.data, 1)
+
+        #我们以一个具体的例子来解释定向攻击：假设有一个图像分类模型，可以将手写数字图片分类为0-9。现在我们有一张图片，内容是数字“7”，模型当前将其正确分类为“7”。
+        #非定向攻击（Untargeted Attack）：我们只希望模型将这张图片分类错误，不管错误分类成什么（比如分类成1,2,3,...,9都可以），只要不是正确的“7”就算攻击成功
+        #定向攻击（Targeted Attack）：我们希望模型将这张图片分类为一个特定的错误类别，例如“2”。也就是说，不管模型原本要分类成什么（可能是7，也可能是其他），攻击后必须让模型分类成“2”才算成功
         if target:
             labels = torch.randint(0, 9, (1,)).to(device)
             if predicted != labels:
@@ -261,6 +265,8 @@ def test_adver(net, tar_net, attack, target):
             'netD_epoch_670.pth', map_location=device)  # 使用 map_location=device
         attack_net = nn.DataParallel(attack_net)
         attack_net.load_state_dict(state_dict)
+        #加载训练好的替代模型D
 
     test_adver(attack_net, target_net, opt.adv, opt.target)
+    #这里的attack_net只是替代模型D，是已经训练好的。
 
